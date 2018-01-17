@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8"/>
+        <link rel="stylesheet" href="css/bootstrap.min.css">
+        <script src="js/vue.min.js"></script>
+        <script src="js/vue-resource.min.js"></script>
+        <script src="js/jquery-2.0.3.min.js"></script>
+        <script src="js/bootstrap.min.js"></script>
+        <!-- SheetJS js-xlsx library -->
+        <script src="js/shim.min.js"></script>
+        <script src="js/xlsx.full.min.js"></script>
+        <!-- FileSaver.js is the library of choice for Chrome -->
+        <script src="js/Blob.js"></script>
+        <script src="js/FileSaver.js"></script>
+        <!-- FileSaver doesn't work in older IE and newer Safari; Downloadify is the flash fallback -->
+        <script src="js/swfobject.js"></script>
+        <script src="js/downloadify.min.js"></script>
+    </head>
+    <body>
+        <div id="app">
+            <button ref="export_btn" class="btn btn-primary" style="float:none;margin-left:0;" type="button" @click="exportExcel">
+                <span v-show="export_percentage==-1">下载报表</span>
+                <span v-show="export_percentage!=-1">导出中:{{export_percentage}}%</span>
+            </button>
+            <div v-show="export_percentage!=-1" class="progress" style="margin:10px;">
+                <div class="progress-bar progress-bar-striped active" role="progressbar" aria-valuemin="0" aria-valuemax="100" :style="{width:export_percentage+'%'}"></div>
+            </div>
+        </div>
+    </body>
+    
+    <script>
+    var app=new Vue({
+        el: '#app',
+        data: function(){
+            return {
+                export_percentage:-1,
+                count:10000
+            }
+        },
+        methods: {
+            exportExcel: function(){
+                var self=this;
+                var request_times=Math.ceil(this.count/100); //计算分几次请求
+                var funcs=[]; //Promise.all要用到的参数, 存放每次请求的Promise对象
+                var complete_count=0; //成功请求次数
+                this.export_percentage=0; //设置当前进度百分比为0
+
+                for (var i=1; i<=request_times; i++) { // 循环请求次数，构造请求的Promise对象并插入funcs数组
+                    var func=new Promise(function(resolve, reject){ //定义Promise并处理请求逻辑
+                        var data=[];
+                        self.$http.get(
+                            'a.php',
+                            { params: {page:i} }
+                        ).then(function(response){
+                            if (response.body.code==200) {
+                                for(var i=0; i<response.body.data.length; i++){ //将后台返回中需要的字段取出
+                                    var item=[];
+                                    item.push(response.body.data[i].id);
+                                    item.push(response.body.data[i].name);
+                                    data.push(item);
+                                }
+                                complete_count++; //成功请求次数+1
+                                self.export_percentage=100*complete_count/request_times; //设置当前进度百分比
+                                resolve(data);
+                            } else {
+                                reject();
+                            }
+                        });
+                    });
+                    funcs.push(func);
+                }
+
+                Promise.all(funcs).then(function(values){ //使用Promise.all调用funcs里面的函数，并合并数据，最后给js-xlsx生成Excel
+                    var aoa=[
+                            ['ID', '名称'] //第一行标题
+                    ];
+                    //将数据合并
+                    for (var i=0; i<values.length; i++) {
+                        for (var j=0; j<values[i].length; j++) {
+                            aoa.push(values[i][j]);
+                        }
+                    }
+                    var ws = XLSX.utils.aoa_to_sheet(aoa);
+                    var wb=XLSX.utils.book_new();
+                    wb.SheetNames.push('sheet1');
+                    wb.Sheets['sheet1'] = ws;
+                    var wopts = { bookType:'xlsx', bookSST:false, type:'array' };
+                    var wbout = XLSX.write(wb,wopts);
+                    saveAs(new Blob([wbout],{type:"application/octet-stream"}), "data.xlsx");
+
+                    self.export_percentage=-1;
+                });
+            }
+        }
+    });
+    </script>
+</html>
